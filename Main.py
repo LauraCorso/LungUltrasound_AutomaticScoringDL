@@ -20,30 +20,72 @@ This project is made up of the following files:
 """
 from Config import *
 from Data import *
-from Model import *
+from Model2 import *
 from Optimizer import *
 from CostFunction import *
 
+
+"""
+--------------------------- Functions for NaN debugging ---------------------------
+"""
+
+"""
+Function for tensor hook
+"""
 def hook_t(grad):
   print("Grad: ", grad)
 
+"""
+Function for non convolutional layer hook
+"""
 def hook_m(self, inp, out):
   print("Inside: ", self.__class__.__name__)
   print("grad_input: ", inp[0].isnan().any())
   print("grad_output: ", out[0].isnan().any())
 
+"""
+Function for convolutional layer hook
+"""
 def hook_res(self, inp, out, name = None):
   print(name)
   for grad in inp:
     if grad is not None:
-      print(grad[0].isnan().any())
+      print("   grad: ", grad[0].isnan().any())
     else:
-      print('None')
+      print("   grad: ", 'None')
 
   if out is not None:
-    print(out[0].isnan().any())
+    print("   grad: ", out[0].isnan().any())
   else:
-    print('None')
+    print("   grad: ", 'None')
+
+"""
+Function to plot the gradients flowing through different layers in the net during training.
+Can be used for checking for possible gradient vanishing / exploding problems.
+
+Usage: Plug this function in Trainer class after loss.backwards() as 
+       "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow
+"""
+def plot_grad_flow(named_parameters):
+    ave_grads = []
+    max_grads= []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean().cpu())
+            max_grads.append(p.grad.abs().max().cpu())
+    fig = plt.figure(1, figsize = (20, 15))
+    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c") #in cyan are visualized the maximum value of the gradient for the given parameter
+    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b") #in blue are visualized the average value of the gradient for the given parameter
+    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    plt.ylim(bottom = -0.001, top=0.02) #zoom in on the lower gradient regions
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    t = "Gradients" + ".png"
+    fig.savefig(os.path.join(result_path, t))
 
 """
 --------------------------- Training step ---------------------------
@@ -69,14 +111,16 @@ def training_step(net, data_loader, optimizer, cost_function, device = T_DEVICE)
   # Set the network to training mode
   net.train() 
 
+  """# Register the backward hook for every convolutional layer of the model
   for m in net.named_modules():
     if isinstance(m[1], torch.nn.Conv2d):
-      m[1].register_full_backward_hook(hook = partial(hook_res, name = m))
+      m[1].register_full_backward_hook(hook = partial(hook_res, name = m))"""
 
+  """# Register the backward hook for every module of the network
   net.fc.register_full_backward_hook(hook_m)
   net.att.register_full_backward_hook(hook_m)
   net.bilstm.register_full_backward_hook(hook_m)
-  net.resnet.register_full_backward_hook(hook_res)
+  net.resnet.register_full_backward_hook(hook_res)"""
 
   # Iterate over the training set
   for batch_idx, (videos, labels, paths) in enumerate(data_loader):
@@ -85,8 +129,11 @@ def training_step(net, data_loader, optimizer, cost_function, device = T_DEVICE)
     videos = videos.to(device)
     labels = labels.to(device)
 
-    for video in videos:
-      print(video.isnan().any())
+    # Gradients reset
+    optimizer.zero_grad()
+
+    """for video in videos:
+      print("Video contains NaN values: ", video.isnan().any())"""
       
     # Forward pass
     outputs = net(videos)
@@ -98,10 +145,10 @@ def training_step(net, data_loader, optimizer, cost_function, device = T_DEVICE)
     # Backward pass
     loss.backward()
 
-    #nn.utils.clip_grad_norm_(net.parameters(), 1)
+    """# Instantiatethe graph of the flow of the gradient
+    plot_grad_flow(net.named_parameters())"""
 
-    for name, param in net.named_parameters():
-      print(name, torch.isfinite(param.grad).all())
+    #nn.utils.clip_grad_norm_(net.parameters(), 1)
     
     # Parameters update
     optimizer.step()
@@ -118,7 +165,11 @@ def training_step(net, data_loader, optimizer, cost_function, device = T_DEVICE)
     cumulative_accuracy += predicted.eq(labels).sum().item()
 
   
-  """videos = torch.rand(4, 252, 3, 256, 256)
+  """
+  Section that reproduces the error with random input.
+  """
+  """
+  videos = torch.rand(4, 252, 3, 256, 256)
   labels = torch.from_numpy(np.array([0, 3, 2, 1]))
   # Load data into GPU
   videos = videos.to(device)
@@ -158,7 +209,8 @@ def training_step(net, data_loader, optimizer, cost_function, device = T_DEVICE)
   _, predicted = outputs.max(dim=1) #extract the index of the most probable label, i.e. extract the prediction as a label (0 - 4)
 
   # Compute training accuracy
-  cumulative_accuracy += predicted.eq(labels).sum().item()"""
+  cumulative_accuracy += predicted.eq(labels).sum().item()
+  """
 
   return cumulative_loss/samples, cumulative_accuracy/samples*100
 
@@ -227,7 +279,7 @@ def test_step(net, data_loader, cost_function, device = T_DEVICE):
 --------------------------- Training of the model ---------------------------
 This section train the model.
 """
-torch.autograd.set_detect_anomaly(True)
+#torch.autograd.set_detect_anomaly(True)
 # Creation of the resul folder
 if not os.path.exists(result_path):
     os.mkdir(result_path)
@@ -262,7 +314,7 @@ precisions = [] # List that stores the precisions over the epochs
 recalls = [] # List that stores the recalls over the epochs
 for e in range(EPOCHS):
   training_step(net, train_dl, optimizer, cost_function)
-  """train_loss, train_accuracy, _, _, _ = test_step(net, train_dl, cost_function)
+  train_loss, train_accuracy, _, _, _ = test_step(net, train_dl, cost_function)
   test_loss, test_accuracy, fscore, precision, recall = test_step(net, test_dl, cost_function)
 
   tr_accuracies.append(train_accuracy)
@@ -313,4 +365,4 @@ with open(os.path.join(result_path, "Recalls.txt"), 'w') as f:
   for item in recalls:
     f.write("%s\n" % item)
 
-torch.save(best_net, result_path) """
+torch.save(best_net, result_path)

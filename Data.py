@@ -285,7 +285,6 @@ if __name__ == "__main__":
   for idx, (v, l, p) in enumerate(ta):
     if idx == 0:
       for video in v:
-        print("Video: ", video)
         print("Video shape: ", video.shape)
 
       print("Paths: ", p)

@@ -118,9 +118,11 @@ class Network(nn.Module):
 
     # Reshape the input tensor from [B x L x C x W x H] to [B*L x C x W x H] to input data in the CNN
     x = i.reshape(-1, i.shape[2], i.shape[3], i.shape[4])
+    print("Input NEt: ", x.shape)
 
     # Compute the spatial feature map (output of the CNN)
     sfm = self.resnet(x)
+    print("sfm: ", sfm.shape)
 
     # Compute the the attention map
     mask = self.att(sfm)
@@ -139,13 +141,14 @@ class Network(nn.Module):
     # Global Average Pooling
     gap = nn.AvgPool2d(x.size()[2:])
     x = gap(x)
+    print("After AL: ", x.shape)
 
     # Reshape the tensor from [B*L x C x W x H] to [B, L, C*W*H] to obtain the feature vector for each frame of the videos in a batch
     x = x.reshape(i.shape[0], i.shape[1], -1)
-    print("Inpu to LSTM: ", x.isnan().any())
 
     # Compute the temporal feature map (output of the RNN)
     x, _ = self.bilstm(x)
+    print("After LSTM: ", x.shape)
 
     # Reshape the tensor from [B, L, HS] to [B, L*HS] where HS is the number of features in the hidden state of the Bi-LSTM
     x = x.reshape(x.shape[0], -1)
